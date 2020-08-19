@@ -1,0 +1,184 @@
+---
+title: "QualtricsTools Data Table Export"
+author: "Emma Morgan"
+date: "8/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+devtools::load_all(".")
+```
+
+## QualtricsTools 2.0 Modern (Data Table) Export
+
+Exploration for QualtricsTools 2.0 working with the data table (modern) export format
+The legacy exporter is going away in 2021, so we need to update QualtricsTools accordingly.
+Emma is trying to assess the workload required and how to best manage this.
+
+Use the Long Exhaustive Sample Survey to try and be comprehensive. This is also well organized
+Into the different types of questions. Emma may actually add additional question types and will need
+to make sure the tests are updated to work with this well moving ahead to our new format.
+Old QualtricsTools that works with the Legacy-unchecked-legacy (insights) and legacy 2 headerrows format
+Will be available under an old preserved branch download. The new version will be designed to work
+only with the current data table export of Qualtrics.
+
+```{r loading-files}
+
+qsf_path <- here::here("data","Sample Surveys","Long Exhaustive 2","Long_Exhaustive_Sample_Survey2.qsf")
+csv_lul <- here::here("data","Sample Surveys","Long Exhaustive 2","Long_Exhaustive2_LUL.csv")
+csv_dt <- here::here("data","Sample Surveys","Long Exhaustive 2","Long_Exhaustive2_DT.csv")
+
+survey <- ask_for_qsf(qsf_path)
+#Can't jump straight to getting reorganzied questions and blocks since this includes processing results
+valid_questions_blocks <- valid_questions_blocks_from_survey(survey)
+questions <- valid_questions_blocks[["questions"]]
+blocks <- valid_questions_blocks[["blocks"]]
+#Get notes from the survey so we can add these to the questions
+qtNotesList <- note_text_from_survey(survey)
+#Add clean question text and human readable question type
+#Insert notes and skip logic into questions
+questions <- add_question_detail(questions = questions, blocks = blocks, qtNotesList = qtNotesList)
+#Split side-by-side questions into their components and create space for the split questions within these blocks.
+split_questions_blocks <- split_sbs_questions_blocks(questions = questions, blocks = blocks)
+questions <- split_questions_blocks[['questions']]
+blocks <- split_questions_blocks[['blocks']]
+
+```
+
+This section is going to look at loading the csv data file for the data table format. This will obviously
+require changes from the previous format since we are changing the type of data being read in.
+
+```{r load-csv-dt}
+
+responses <- readr::read_csv(csv_dt, col_types = readr::cols(.default = "c"))
+responses[which(colnames(responses) == "")] <- NULL
+
+original_first_rows <- responses[1:2,]
+#Now we need to clean up the third row so it can be at all usable
+#Write a function that can do this cleaning; then, in the future, we can just update this function
+#instead of having to change the entire package again
+clean_question_id <- function(qid) {
+  qid_orig <- qid
+  #Clean out the first part {"ImportId":"
+  qid <- stringr::str_replace(qid, "^\\{\"ImportId\":\"","")
+  #Clean out the end part
+  qid <- stringr::str_replace(qid, "\"\\}$","")
+  #Clean out the middle choiceId section
+  qid <- stringr::str_replace(qid,"\",\"choiceId\":\"","_")
+  return(qid)
+}
+
+#Now see what this has done
+
+original_first_rows[2,] <- purrr::map(original_first_rows[2,], clean_question_id)
+t(original_first_rows[2,])
+
+#Now assign responses to be only the valid response columns
+responses <- responses[3:nrow(responses),]
+responses <- responses[apply(responses, 1, function(x) any(x != "")),]
+responses <- apply(responses, 2, trimws)
+
+
+```
+
+
+Now we have managed to try and clean up the response import ids in new ways, so let's see if that has paid off at all with
+what we are trying to do and whether we can link responses to questions
+
+
+```{r link responses}
+
+questions <- link_responses_to_questions(questions = questions,
+                                           responses = responses,
+                                           original_first_rows = original_first_rows)
+
+
+```
+
+
+The next steps after this would be linking responses to questions and processing question results.
+Instead, add a step to create a codebook for each question based on the QSF alone. This should NOT 
+need to involve the csv. If I can establish this step, it may also give Matthew more of a foundation to move forward with this.
+
+The next section will show how to generate a codebook for each question type. This can then be functionalized and added 
+to the setup process as an integral step of parsing the qsf.
+
+```{r generate_codebook}
+
+
+#Going through the process_question_results question types since these are what we can work with
+#numerical text answer - n/a
+
+# multiple choice multiple answer
+#  For this type, we don't really want a codebook as much as a mapping since it will always be "selected" and "unselected",
+#  but we do at least want mapping from the variable name, choice value, recode value (if applicable), choice text
+
+#Identify mcma_questions
+mcma_questions <- questions[which(purrr::map_lgl(questions, is_mc_multiple_answer))]
+
+#Start with Q15 - this has recode values
+q <- mcma_questions[['Q15']][['Payload']]
+q_choices <- purrr::map(q[['Choices']],"Display")
+q_choices <- purrr::map(q_choices, clean_html_and_css)
+q_choices <- tibble::tibble("ChoiceValue" = names(q_choices),
+                            "ChoiceText" = q_choices)
+q_recode_values <- tibble::tibble("ChoiceValue" = names(q[['RecodeValues']]),
+                                     "RecodeValue" = q[['RecodeValues']])
+#Now we will still need to create a list of the variable names to add to this
+#The variable names will vary depending on whether or not recode values are used. If recode values are used,
+#These appear in both the third row choiceID AND the first row variable names.
+
+
+```
+       
+       
+        else if (is_mc_multiple_answer(question)) {
+          if (should_use_ofr) {
+            question <-
+              mc_multiple_answer_results(question, original_first_rows)
+          } else {
+            question <- mc_multiple_answer_results(question)
+          }
+
+          # multiple choice single answer with NA type choice
+        } else if(is_mc_single_answer(question) && has_na(question)){
+          if (should_use_ofr) {
+            question <-
+              matrix_single_answer_results(question, original_first_rows)
+          } else {
+            question <- matrix_single_answer_results(question)
+          }
+
+          # regular multiple choice single answer
+        } else if(is_mc_single_answer(question) && !has_na(question)){
+          if (should_use_ofr) {
+            question <- mc_single_answer_results(question, original_first_rows)
+          } else {
+            question <- mc_single_answer_results(question)
+          }
+
+          # matrix multiple answer
+        } else if (is_matrix_multiple_answer(question)) {
+          if (should_use_ofr) {
+            question <-
+              matrix_multiple_answer_results(question, original_first_rows)
+          } else {
+            question <- matrix_multiple_answer_results(question)
+          }
+
+          # matrix single answer
+        } else if (is_matrix_single_answer(question)) {
+          if (should_use_ofr) {
+            question <-
+              matrix_single_answer_results(question, original_first_rows)
+          } else {
+            question <- matrix_single_answer_results(question)
+          }
+        }
+      }, silent = TRUE)
+
+
+
+
+```
