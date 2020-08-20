@@ -301,6 +301,11 @@ rm("mcsa_questions", "q", "q_choices", "q_recode_values", "q_text_entry", "codeb
 
 ```
 
+It's an open question whether to include "Selected" and "Not selected", but I don't think this really matters in the codebook since 0/1 is descriptive
+enough to indicate response presence. 
+
+Next sep is going to be making codebooks for multiple choice single answer questions. We want to have similar columns to the other codebook. Then we just need to determine whether the recode values or actual values are being used. Processing responses has separate conditions for MCSA with N/A and 
+MCSA without N/A, but this disctinction does not matter for purposes of the codebook.
 
 Now that we have created the codebook, functionalize this so that we can easily create codebooks for mutiple choice
 single answer type questions.
@@ -354,58 +359,65 @@ we can try to see how it works with all of the mcma questions in this survey.
 mcsa_questions <- questions[which(purrr::map_lgl(questions, is_mc_single_answer))]
 
 mcsa_questions <- lapply(mcsa_questions, function(x) mcsa_codebook(x))
-mcma_codebooks <- purrr::map(mcsa_questions, "Codebook")
+mcsa_codebooks <- purrr::map(mcsa_questions, "Codebook")
+mcsa_codebooks
 
-mcma_codebooks
+```
 
+```{r clean_environment2, include=FALSE}
+
+rm("mcsa_questions", "q", "q_choices", "q_recode_values", "q_text_entry", "codebook")
 
 ```
 
 
-else if (is_mc_multiple_answer(question)) {
-  if (should_use_ofr) {
-    question <-
-      mc_multiple_answer_results(question, original_first_rows)
-  } else {
-    question <- mc_multiple_answer_results(question)
-  }
-
-  # multiple choice single answer with NA type choice
-} else if(is_mc_single_answer(question) && has_na(question)){
-  if (should_use_ofr) {
-    question <-
-      matrix_single_answer_results(question, original_first_rows)
-  } else {
-    question <- matrix_single_answer_results(question)
-  }
-
-  # regular multiple choice single answer
-} else if(is_mc_single_answer(question) && !has_na(question)){
-  if (should_use_ofr) {
-    question <- mc_single_answer_results(question, original_first_rows)
-  } else {
-    question <- mc_single_answer_results(question)
-  }
-
-  # matrix multiple answer
-} else if (is_matrix_multiple_answer(question)) {
-  if (should_use_ofr) {
-    question <-
-      matrix_multiple_answer_results(question, original_first_rows)
-  } else {
-    question <- matrix_multiple_answer_results(question)
-  }
-
-  # matrix single answer
-} else if (is_matrix_single_answer(question)) {
-  if (should_use_ofr) {
-    question <-
-      matrix_single_answer_results(question, original_first_rows)
-  } else {
-    question <- matrix_single_answer_results(question)
-  }
-}
-}, silent = TRUE)
 
 
+```{r processing-question-results-code, include=FALSE}
 
+# else if (is_mc_multiple_answer(question)) {
+#   if (should_use_ofr) {
+#     question <-
+#       mc_multiple_answer_results(question, original_first_rows)
+#   } else {
+#     question <- mc_multiple_answer_results(question)
+#   }
+# 
+#   # multiple choice single answer with NA type choice
+# } else if(is_mc_single_answer(question) && has_na(question)){
+#   if (should_use_ofr) {
+#     question <-
+#       matrix_single_answer_results(question, original_first_rows)
+#   } else {
+#     question <- matrix_single_answer_results(question)
+#   }
+# 
+#   # regular multiple choice single answer
+# } else if(is_mc_single_answer(question) && !has_na(question)){
+#   if (should_use_ofr) {
+#     question <- mc_single_answer_results(question, original_first_rows)
+#   } else {
+#     question <- mc_single_answer_results(question)
+#   }
+# 
+#   # matrix multiple answer
+# } else if (is_matrix_multiple_answer(question)) {
+#   if (should_use_ofr) {
+#     question <-
+#       matrix_multiple_answer_results(question, original_first_rows)
+#   } else {
+#     question <- matrix_multiple_answer_results(question)
+#   }
+# 
+#   # matrix single answer
+# } else if (is_matrix_single_answer(question)) {
+#   if (should_use_ofr) {
+#     question <-
+#       matrix_single_answer_results(question, original_first_rows)
+#   } else {
+#     question <- matrix_single_answer_results(question)
+#   }
+# }
+# }, silent = TRUE)
+
+```
