@@ -364,14 +364,6 @@ mcsa_codebooks
 
 ```
 
-```{r clean_environment2, include=FALSE}
-
-rm("mcsa_questions", "q", "q_choices", "q_recode_values", "q_text_entry", "codebook")
-
-```
-
-
-
 
 ```{r processing-question-results-code, include=FALSE}
 
