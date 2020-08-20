@@ -23,7 +23,7 @@ Old QualtricsTools that works with the Legacy-unchecked-legacy (insights) and le
 Will be available under an old preserved branch download. The new version will be designed to work
 only with the current data table export of Qualtrics.
 
-```{r loading-files}
+```{r loading-files, include=FALSE}
 
 qsf_path <- here::here("data","Sample Surveys","Long Exhaustive 2","Long_Exhaustive_Sample_Survey2.qsf")
 csv_lul <- here::here("data","Sample Surveys","Long Exhaustive 2","Long_Exhaustive2_LUL.csv")
@@ -44,12 +44,14 @@ split_questions_blocks <- split_sbs_questions_blocks(questions = questions, bloc
 questions <- split_questions_blocks[['questions']]
 blocks <- split_questions_blocks[['blocks']]
 
+rm("valid_questions_blocks", "split_questions_blocks")
+
 ```
 
 This section is going to look at loading the csv data file for the data table format. This will obviously
 require changes from the previous format since we are changing the type of data being read in.
 
-```{r load-csv-dt}
+```{r load-csv-dt, include = FALSE}
 
 responses <- readr::read_csv(csv_dt, col_types = readr::cols(.default = "c"))
 responses[which(colnames(responses) == "")] <- NULL
@@ -77,8 +79,9 @@ t(original_first_rows[2,])
 #Now assign responses to be only the valid response columns
 responses <- responses[3:nrow(responses),]
 responses <- responses[apply(responses, 1, function(x) any(x != "")),]
-responses <- apply(responses, 2, trimws)
 
+#Changed this from just the apply so that it will return a tibble instead of a matrix; this may or may not matter 
+responses <- tibble::as_tibble(apply(responses, 2, trimws))
 
 ```
 
@@ -104,7 +107,7 @@ need to involve the csv. If I can establish this step, it may also give Matthew 
 The next section will show how to generate a codebook for each question type. This can then be functionalized and added 
 to the setup process as an integral step of parsing the qsf.
 
-```{r mcma_codebook_sample}
+```{r mcma_codebook_sample, include = FALSE}
 
 
 #Going through the process_question_results question types since these are what we can work with
@@ -155,10 +158,18 @@ if ("RecodeValues" %in% names(q)) {
 #Now order so we have Question Response Column, choiceText, Choicevalue, then other columns
 codebook <- dplyr::select(codebook, `Question Response Column`, `ChoiceText`, `ChoiceValue`, dplyr::everything())
 codebook
+
 ```
        
 Now I've created a codebook for one single question. Now, I would like to functionalize this so I can create a codebook for ANY 
 multiple choice multiple answer question.
+
+```{r clean_environment1, include=FALSE}
+
+#Clean up the environment from everything that was created in the last section
+rm("codebook", "mcma_questions", "q","q_choices", "q_recode_values", "q_text_entry", "q_varnames")
+
+```
 
 ```{r mcma_codebook}
 
@@ -182,7 +193,8 @@ mcma_codebook <- function(question) {
   }
   
   if (has_recode_values) {
-    q_varnames <- purrr::map_chr(question[['Payload']][['RecodeValues']], ~ stringr::str_c(question[['Payload']][['DataExportTag']],"_",.x))
+    q_varnames <- purrr::map_chr(question[['Payload']][['RecodeValues']],
+                                 ~ stringr::str_c(question[['Payload']][['DataExportTag']],"_",.x))
     q_varnames <- tibble::tibble("ChoiceValue" = names(q_varnames),
                                  "Question Response Column" = unname(q_varnames))
   } else {
@@ -231,53 +243,169 @@ mcma_codebooks
 
 
 ```
-       
-        else if (is_mc_multiple_answer(question)) {
-          if (should_use_ofr) {
-            question <-
-              mc_multiple_answer_results(question, original_first_rows)
-          } else {
-            question <- mc_multiple_answer_results(question)
-          }
 
-          # multiple choice single answer with NA type choice
-        } else if(is_mc_single_answer(question) && has_na(question)){
-          if (should_use_ofr) {
-            question <-
-              matrix_single_answer_results(question, original_first_rows)
-          } else {
-            question <- matrix_single_answer_results(question)
-          }
+It's an open question whether to include "Selected" and "Not selected", but I don't think this really matters in the codebook since 0/1 is descriptive
+enough to indicate response presence. 
 
-          # regular multiple choice single answer
-        } else if(is_mc_single_answer(question) && !has_na(question)){
-          if (should_use_ofr) {
-            question <- mc_single_answer_results(question, original_first_rows)
-          } else {
-            question <- mc_single_answer_results(question)
-          }
+Next sep is going to be making codebooks for multiple choice single answer questions. We want to have similar columns to the other codebook. Then we just need to determine whether the recode values or actual values are being used. Processing responses has separate conditions for MCSA with N/A and 
+MCSA without N/A, but this disctinction does not matter for purposes of the codebook.
 
-          # matrix multiple answer
-        } else if (is_matrix_multiple_answer(question)) {
-          if (should_use_ofr) {
-            question <-
-              matrix_multiple_answer_results(question, original_first_rows)
-          } else {
-            question <- matrix_multiple_answer_results(question)
-          }
+```{r mcsa_codebook_sample, include=FALSE}
 
-          # matrix single answer
-        } else if (is_matrix_single_answer(question)) {
-          if (should_use_ofr) {
-            question <-
-              matrix_single_answer_results(question, original_first_rows)
-          } else {
-            question <- matrix_single_answer_results(question)
-          }
-        }
-      }, silent = TRUE)
+#Identify mcsa_questions
+mcsa_questions <- questions[which(purrr::map_lgl(questions, is_mc_single_answer))]
 
+#Start with Q7 - this has recode values and multiple text entry components
+q <- mcsa_questions[['Q7']][['Payload']]
+q_choices <- purrr::map_chr(q[['Choices']],"Display")
+q_choices <- purrr::map_chr(q_choices, clean_html_and_css)
+q_choices <- tibble::tibble("ChoiceValue" = names(q_choices),
+                            "ChoiceText" = q_choices)
+q_recode_values <- tibble::tibble("ChoiceValue" = names(q[['RecodeValues']]),
+                                     "RecodeValue" = unlist(q[['RecodeValues']]))
+#For this type of question, there is only a single column that corresponds to the DataExportTag.
+#This makes it easier; the additional columns are for text entry components and will need to be dealt with
+#later as we are creating text appendices
+q_varname <- q[['DataExportTag']]
 
+#Also should add a column for "TextEntry" to indicate whether a choice had text entry
+#This will return "True" if the TextEntry selector is set to true; if there is not
+#text entry selector indicated, replace the Null value with "false"
+q_text_entry <- unlist(tidyr::replace_na(purrr::map(q[['Choices']],"TextEntry"),"false"))
+q_text_entry <- tibble::tibble("ChoiceValue" = names(q_text_entry),
+                               "TextEntry" = q_text_entry)
+
+#Now bring all of these tables together
+codebook <- dplyr::full_join(q_choices, q_text_entry, by="ChoiceValue")
+
+if ("RecodeValues" %in% names(q)) {
+  codebook <- dplyr::full_join(codebook, q_recode_values, by="ChoiceValue")
+}
+#Add in the question response column
+codebook <- dplyr::mutate(codebook, `Question Response Column` = q[['DataExportTag']])
+#Add in an actual "value" column that takes either the choice value or recode value
+if ("RecodeValues" %in% names(q)) {
+  codebook <- dplyr::mutate(codebook, "Value" = RecodeValue)
+} else codebook <- dplyr::mutate(codebook, "Value" = ChoiceValue)
+#Now order so we have Question Response Column, choiceText, Choicevalue, then other columns
+codebook <- dplyr::select(codebook, `Question Response Column`, Value, "ValueLabel" = `ChoiceText`, TextEntry, `ChoiceValue`, dplyr::everything())
+
+codebook
 
 
 ```
+
+```{r clean_environment2, include=FALSE}
+
+rm("mcsa_questions", "q", "q_choices", "q_recode_values", "q_text_entry", "codebook")
+
+```
+
+
+Now that we have created the codebook, functionalize this so that we can easily create codebooks for mutiple choice
+single answer type questions.
+
+```{r mcsa_codebook}
+mcsa_codebook <- function(question) {
+  
+  has_recode_values <- "RecodeValues" %in% names(question[['Payload']])
+  
+  q_choices <- purrr::map_chr(question[['Payload']][['Choices']],"Display")
+  q_choices <- purrr::map_chr(q_choices, clean_html_and_css)
+  q_choices <- tibble::tibble("ChoiceValue" = names(q_choices),
+                              "ChoiceText" = q_choices)
+  q_recode_values <- tibble::tibble("ChoiceValue" = names(question[['Payload']][['RecodeValues']]),
+                                    "RecodeValue" = unlist(question[['Payload']][['RecodeValues']]))
+
+  #Also should add a column for "TextEntry" to indicate whether a choice had text entry
+  #This will return "True" if the TextEntry selector is set to true; if there is not
+  #text entry selector indicated, replace the Null value with "false"
+  q_text_entry <- unlist(tidyr::replace_na(purrr::map(question[['Payload']][['Choices']],"TextEntry"),"false"))
+  q_text_entry <- tibble::tibble("ChoiceValue" = names(q_text_entry),
+                                 "TextEntry" = q_text_entry)
+  
+  #Now bring all of these tables together
+  codebook <- dplyr::full_join(q_choices, q_text_entry, by="ChoiceValue")
+  
+  if (has_recode_values) {
+    codebook <- dplyr::full_join(codebook, q_recode_values, by="ChoiceValue")
+  }
+  #Add in the question response column
+  codebook <- dplyr::mutate(codebook, `Question Response Column` = question[['Payload']][['DataExportTag']])
+  #Add in an actual "value" column that takes either the choice value or recode value
+  if (has_recode_values) {
+    codebook <- dplyr::mutate(codebook, "Value" = RecodeValue)
+  } else codebook <- dplyr::mutate(codebook, "Value" = ChoiceValue)
+  #Now order so we have Question Response Column, choiceText, Choicevalue, then other columns
+  codebook <- dplyr::select(codebook, `Question Response Column`, Value, 
+                            "ValueLabel" = `ChoiceText`, TextEntry, `ChoiceValue`, dplyr::everything())
+  
+  question[["Codebook"]] <- codebook
+  return(question)
+}
+
+```
+
+Now that the multiple choice single answer codebook is functionalized, 
+we can try to see how it works with all of the mcma questions in this survey.
+
+```{r generate_mcsa_codebooks}
+
+mcsa_questions <- questions[which(purrr::map_lgl(questions, is_mc_single_answer))]
+
+mcsa_questions <- lapply(mcsa_questions, function(x) mcsa_codebook(x))
+mcma_codebooks <- purrr::map(mcsa_questions, "Codebook")
+
+mcma_codebooks
+
+
+```
+
+
+<!-- else if (is_mc_multiple_answer(question)) { -->
+<!--   if (should_use_ofr) { -->
+<!--     question <- -->
+<!--       mc_multiple_answer_results(question, original_first_rows) -->
+<!--   } else { -->
+<!--     question <- mc_multiple_answer_results(question) -->
+<!--   } -->
+
+<!--   # multiple choice single answer with NA type choice -->
+<!-- } else if(is_mc_single_answer(question) && has_na(question)){ -->
+<!--   if (should_use_ofr) { -->
+<!--     question <- -->
+<!--       matrix_single_answer_results(question, original_first_rows) -->
+<!--   } else { -->
+<!--     question <- matrix_single_answer_results(question) -->
+<!--   } -->
+
+<!--   # regular multiple choice single answer -->
+<!-- } else if(is_mc_single_answer(question) && !has_na(question)){ -->
+<!--   if (should_use_ofr) { -->
+<!--     question <- mc_single_answer_results(question, original_first_rows) -->
+<!--   } else { -->
+<!--     question <- mc_single_answer_results(question) -->
+<!--   } -->
+
+<!--   # matrix multiple answer -->
+<!-- } else if (is_matrix_multiple_answer(question)) { -->
+<!--   if (should_use_ofr) { -->
+<!--     question <- -->
+<!--       matrix_multiple_answer_results(question, original_first_rows) -->
+<!--   } else { -->
+<!--     question <- matrix_multiple_answer_results(question) -->
+<!--   } -->
+
+<!--   # matrix single answer -->
+<!-- } else if (is_matrix_single_answer(question)) { -->
+<!--   if (should_use_ofr) { -->
+<!--     question <- -->
+<!--       matrix_single_answer_results(question, original_first_rows) -->
+<!--   } else { -->
+<!--     question <- matrix_single_answer_results(question) -->
+<!--   } -->
+<!-- } -->
+<!-- }, silent = TRUE) -->
+
+
+
