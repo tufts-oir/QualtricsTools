@@ -97,14 +97,14 @@ questions <- link_responses_to_questions(questions = questions,
 ```
 
 
-The next steps after this would be linking responses to questions and processing question results.
+The next steps after linking responses to questions would be processing question results.
 Instead, add a step to create a codebook for each question based on the QSF alone. This should NOT 
-need to involve the csv. If I can establish this step, it may also give Matthew more of a foundation to move forward with this.
+need to involve the csv. If I can establish this step, it may also give Matthew (or Emma) more of a foundation to move forward with this.
 
 The next section will show how to generate a codebook for each question type. This can then be functionalized and added 
 to the setup process as an integral step of parsing the qsf.
 
-```{r generate_codebook}
+```{r mcma_codebook_sample}
 
 
 #Going through the process_question_results question types since these are what we can work with
@@ -119,19 +119,118 @@ mcma_questions <- questions[which(purrr::map_lgl(questions, is_mc_multiple_answe
 
 #Start with Q15 - this has recode values
 q <- mcma_questions[['Q15']][['Payload']]
-q_choices <- purrr::map(q[['Choices']],"Display")
-q_choices <- purrr::map(q_choices, clean_html_and_css)
+q_choices <- purrr::map_chr(q[['Choices']],"Display")
+q_choices <- purrr::map_chr(q_choices, clean_html_and_css)
 q_choices <- tibble::tibble("ChoiceValue" = names(q_choices),
                             "ChoiceText" = q_choices)
 q_recode_values <- tibble::tibble("ChoiceValue" = names(q[['RecodeValues']]),
-                                     "RecodeValue" = q[['RecodeValues']])
-#Now we will still need to create a list of the variable names to add to this
+                                     "RecodeValue" = unlist(q[['RecodeValues']]))
+#Now we will still need to create a list of the variable names (Question Response Columns) to add to this
 #The variable names will vary depending on whether or not recode values are used. If recode values are used,
 #These appear in both the third row choiceID AND the first row variable names.
+if ("RecodeValues" %in% names(q)) {
+  q_varnames <- purrr::map_chr(q[['RecodeValues']], ~ stringr::str_c(q[['DataExportTag']],"_",.x))
+  q_varnames <- tibble::tibble("ChoiceValue" = names(q_varnames),
+                               "Question Response Column" = q_varnames)
+} else {
+  q_varnames <- stringr::str_c(q[['DataExportTag']],"_",names(q[['Choices']]))
+  q_varnames <- tibble::tibble("ChoiceValue" = names(q[['Choices']]),
+                               "Question Response Column" = q_varnames)
+}
+q_varnames
+
+#Also should add a column for "TextEntry" to indicate whether a choice had text entry
+#This will return "True" if the TextEntry selector is set to true; if there is not
+#text entry selector indicated, replace the Null value with "false"
+q_text_entry <- unlist(tidyr::replace_na(purrr::map(q[['Choices']],"TextEntry"),"false"))
+q_text_entry <- tibble::tibble("ChoiceValue" = names(q_text_entry),
+                               "TextEntry" = q_text_entry)
+
+#Now bring all of these tables together
+codebook <- dplyr::full_join(q_choices, q_varnames, by="ChoiceValue")
+codebook <- dplyr::full_join(codebook, q_text_entry, by="ChoiceValue")
+if ("RecodeValues" %in% names(q)) {
+  codebook <- dplyr::full_join(codebook, q_recode_values, by="ChoiceValue")
+}
+#Now order so we have Question Response Column, choiceText, Choicevalue, then other columns
+codebook <- dplyr::select(codebook, `Question Response Column`, `ChoiceText`, `ChoiceValue`, dplyr::everything())
+codebook
+```
+       
+Now I've created a codebook for one single question. Now, I would like to functionalize this so I can create a codebook for ANY 
+multiple choice multiple answer question.
+
+```{r mcma_codebook}
+
+mcma_codebook <- function(question) {
+  #Identify whether the question has recode values
+  has_recode_values <- "RecodeValues" %in% names(question[['Payload']])
+  
+  #Generate table of choices
+  q_choices <- sapply(question[['Payload']][['Choices']],function(x) x[["Display"]])
+  q_choices <- sapply(q_choices, function(x) clean_html_and_css(x))
+  q_choices <- tibble::tibble("ChoiceValue" = names(q_choices),
+                              "ChoiceText" = unname(q_choices))
+  
+  #Generate a table of variable names (Question Response column)
+  
+  
+  #Generate a table of recode values if recode values exist
+  if (has_recode_values) {
+    q_recode_values <- tibble::tibble("ChoiceValue" = names(question[['Payload']][['RecodeValues']]),
+                                     "RecodeValue" = unname(unlist(question[['Payload']][['RecodeValues']])))
+  }
+  
+  if (has_recode_values) {
+    q_varnames <- purrr::map_chr(question[['Payload']][['RecodeValues']], ~ stringr::str_c(question[['Payload']][['DataExportTag']],"_",.x))
+    q_varnames <- tibble::tibble("ChoiceValue" = names(q_varnames),
+                                 "Question Response Column" = unname(q_varnames))
+  } else {
+    q_varnames <- stringr::str_c(question[["Payload"]][['DataExportTag']],"_",names(question[["Payload"]][['Choices']]))
+    q_varnames <- tibble::tibble("ChoiceValue" = names(question[["Payload"]][['Choices']]),
+                                 "Question Response Column" = unname(q_varnames))
+  }
+  
+  #Generate a table indicating text entry presence for each choice
+  #This will return "True" if the TextEntry selector is set to true; if there is not
+  #text entry selector indicated, replace the Null value with "false"
+  q_text_entry <- unlist(tidyr::replace_na(purrr::map(question[["Payload"]][['Choices']],"TextEntry"),"false"))
+  q_text_entry <- tibble::tibble("ChoiceValue" = names(q_text_entry),
+                               "TextEntry" = unname(q_text_entry))
+
+  #Now bring all of these tables together to create the codebook
+  codebook <- dplyr::full_join(q_choices, q_varnames, by="ChoiceValue")
+  codebook <- dplyr::full_join(codebook, q_text_entry, by="ChoiceValue")
+  
+  if (has_recode_values) {
+    codebook <- dplyr::full_join(codebook, q_recode_values, by="ChoiceValue")
+  }
+  
+  #Now order so we have Question Response Column, choiceText, Choicevalue, then other columns
+  codebook <- dplyr::select(codebook, `Question Response Column`, `ChoiceText`, `ChoiceValue`, dplyr::everything())
+  
+  #Add the codebook element to the question
+  question[['Codebook']] <- codebook
+  return(question)
+  
+}
 
 
 ```
-       
+
+Now that this is functionalized, we can try to see how it works with all of the mcma questions in this survey.
+
+```{r generate_mcma_codebooks}
+
+mcma_questions <- questions[which(purrr::map_lgl(questions, is_mc_multiple_answer))]
+
+mcma_questions <- lapply(mcma_questions, function(x) mcma_codebook(x))
+mcma_codebooks <- purrr::map(mcma_questions, "Codebook")
+
+mcma_codebooks
+
+
+```
        
         else if (is_mc_multiple_answer(question)) {
           if (should_use_ofr) {
