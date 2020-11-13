@@ -85,4 +85,6 @@ documentation.
 Check out our [FAQ](https://github.com/emmamorgan-tufts/QualtricsTools/wiki/Frequently-Asked-Questions) for more help.
 This package previously maintained by Emma Morgan.
 
+This is a testing version while we make developments to QualtricsTools.
+
 
