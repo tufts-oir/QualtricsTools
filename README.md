@@ -1,3 +1,7 @@
+# InsightsQualtricsTools
+We made the InsightsQualtricsTools branch since we are shifting the master branch of QualtricsTools to using the Data Table export format. So in the future
+if anyone ever wants to process some insights/legacy data they can just use this branch.
+
 # QualtricsTools 
 
 QualtricsTools is an [R](https://www.r-project.org/) package that automatically processes Qualtrics survey data into 
